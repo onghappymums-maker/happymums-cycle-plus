@@ -1,16 +1,16 @@
 const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
-const twilio = require('twilio');
+const axios = require('axios');
 
 const app = express();
-app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const conversations = {};
 
 const SYSTEM_PROMPT = "Tu es Happy Mum's Cycle+, un assistant de sante menstruelle pour filles et jeunes femmes en Afrique francophone. Tu parles comme une grande soeur bienveillante. Tu n'es pas medecin. Tu dois toujours rassurer, expliquer simplement, donner un conseil pratique, et orienter vers un professionnel si necessaire. Reponds toujours en francais.";
 
-const MENU = "Bienvenue ! Je suis Happy Mums Cycle+ 🌸\n\n1 - Regles\n2 - Hygiene\n3 - Cycle\n4 - Douleurs\n5 - Sante sexuelle\n6 - Contraception\n7 - Question libre\n0 - Contact humain";
+const MENU = "🌸🌸🌸🌸🌸🌸🌸🌸\n💕 *Happy Mum's Cycle+* 💕\n🌸🌸🌸🌸🌸🌸🌸🌸\n\n_Ton espace sans gêne_ ✨\n\n🩸 1 — Mes règles\n🚿 2 — Hygiène\n🔄 3 — Mon cycle\n💊 4 — Douleurs\n💝 5 — Santé sexuelle\n🌿 6 — Contraception\n💬 7 — Question libre\n👩‍⚕️ 0 — Parler à un humain\n\n💛 _Je suis là pour toi_ 💛";
 
 const SHORTCUTS = {
   "1": "Explique-moi pourquoi on a ses regles.",
@@ -20,29 +20,59 @@ const SHORTCUTS = {
   "5": "J'ai des questions sur la sante sexuelle.",
   "6": "Comment fonctionne la contraception ?",
   "7": "Je veux poser une question.",
-  "0": "contact"
 };
 
-function sendTwiml(res, message) {
-  const twiml = new twilio.twiml.MessagingResponse();
-  twiml.message(message);
-  res.type('text/xml').send(twiml.toString());
+async function sendMessage(to, message) {
+  await axios.post(
+    `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_ID}/messages`,
+    {
+      messaging_product: "whatsapp",
+      to: to,
+      type: "text",
+      text: { body: message }
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json"
+      }
+    }
+  );
 }
 
+// Verification webhook Meta
+app.get('/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
+// Reception messages
 app.post('/webhook', async (req, res) => {
   try {
-    const from = req.body.From || 'unknown';
-    const body = (req.body.Body || '').trim();
+    res.sendStatus(200);
+    const entry = req.body.entry?.[0];
+    const change = entry?.changes?.[0];
+    const message = change?.value?.messages?.[0];
+    if (!message) return;
+
+    const from = message.from;
+    const body = (message.text?.body || '').trim();
     const lower = body.toLowerCase();
 
     if (!conversations[from]) conversations[from] = [];
 
     if (lower === 'menu' || lower === 'start') {
-      return sendTwiml(res, MENU);
+      return await sendMessage(from, MENU);
     }
 
     if (body === '0') {
-      return sendTwiml(res, "Pour parler a un humain, contacte directement ONG Happy Mums :\nTel : +225 07 13 51 26 98\nEmail : onghappymums@gmail.com 🌸");
+      return await sendMessage(from, "Pour parler à un humain 🌸\n📞 +225 07 13 51 26 98\n📧 onghappymums@gmail.com\n\nNous sommes là pour toi 💛");
     }
 
     const prompt = SHORTCUTS[body] || body;
@@ -57,12 +87,11 @@ app.post('/webhook', async (req, res) => {
 
     const reply = response.content[0].text;
     conversations[from].push({ role: 'assistant', content: reply });
-    sendTwiml(res, reply);
+    await sendMessage(from, reply);
 
   } catch (err) {
     console.error('Erreur:', err.message);
-    sendTwiml(res, "Desolee, une erreur s'est produite. Reessaie dans un instant 🌸");
   }
 });
 
-app.listen(process.env.PORT || 3000, () => console.log('Cycle+ actif'));
+app.listen(process.env.PORT || 3000, () => console.log('Cycle+ Meta actif'));
