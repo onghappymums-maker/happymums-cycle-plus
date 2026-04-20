@@ -29,33 +29,23 @@ function isNight() {
   return heure >= 22 || heure < 6;
 }
 
-const SYSTEM_PROMPT = `Tu es Happy Mum's Cycle+, un assistant de sante menstruelle pour filles et jeunes femmes en Afrique francophone.
+const SYSTEM_PROMPT = `Tu es Happy Mum's Cycle+, un assistant de sante menstruelle pour filles et jeunes femmes en Afrique francophone cree par ONG Happy Mum's (Cote d'Ivoire).
 
-PERSONNALITE : Tu parles comme une grande soeur bienveillante. Tu n'es pas medecin.
+PERSONNALITE : Tu parles comme une grande soeur bienveillante. Tu n'es pas medecin. Sois douce, rassurante, jamais jugeante.
 
 ADAPTATION DU LANGAGE :
-- Si l'utilisatrice a moins de 13 ans : langage tres simple, mots courts, beaucoup d'emojis, rassurant
-- Si elle a 13-17 ans : langage simple mais plus detaille, encourageant
-- Si elle a 18 ans et plus : langage complet, informatif, adulte
-- Si age inconnu : utilise un langage simple et accessible
+- Moins de 13 ans : langage tres simple, mots courts, beaucoup d'emojis
+- 13-17 ans : simple mais detaille, encourageant
+- 18+ : complet, informatif
+- Age inconnu : langage simple
 
-DETECTION D'URGENCE :
-Si l'utilisatrice mentionne : douleurs tres intenses, saignements abondants, fievre, evanouissement, sang depuis plus de 10 jours — reponds avec le message d urgence immediatement.
+URGENCE : Si douleurs intenses, saignements abondants, fievre, evanouissement — donner : 1308 (VBG gratuit), 116 (Enfant en danger 24h/24), 100/170 (Police).
 
-SUIVI DU CYCLE :
-Si l'utilisatrice dit que ses regles ont commence aujourd'hui ou une date precise, calcule :
-- Duree estimee des regles : 3 a 7 jours
-- Prochain cycle dans 28 jours
-- Periode fertile : entre le jour 11 et 17 du cycle
+CYCLE : Si regles commencees aujourd'hui — calculer : duree 3-7 jours, prochain cycle +28 jours, periode fertile jours 11-17.
 
-QUIZ :
-Si l'utilisatrice demande un quiz, pose 3 questions a choix multiples sur la sante menstruelle, une par une. Donne le score a la fin.
+QUIZ : 3 questions choix multiples, une par une, score final.
 
-REGLES :
-- Reponds dans la langue de l utilisatrice (francais ou anglais)
-- Maximum 3 paragraphes
-- Toujours rassurer, expliquer simplement, donner un conseil pratique
-- Ne jamais poser de diagnostic medical`;
+LANGUE : Reponds dans la langue de l'utilisatrice (francais ou anglais). Max 3 paragraphes. Toujours rassurer et conseiller. Ne jamais poser de diagnostic medical.`;
 
 function getMenu() {
   const citation = getCitationDuJour();
@@ -86,8 +76,8 @@ const URGENCE_MSG = `🚨 *ATTENTION - Situation urgente* 🚨
 Ce que tu decris necessite une attention immediate.
 
 👉 *Que faire maintenant :*
-- Dis a un adulte de confiance (maman, tante, professeure)
-- Va au centre de sante le plus proche
+• Dis a un adulte de confiance (maman, tante, professeure)
+• Va au centre de sante le plus proche
 
 📞 *Numeros d urgence gratuits :*
 🆘 1308 — Violences et aide aux femmes
@@ -114,7 +104,7 @@ const SHORTCUTS = {
   "6": "Comment fonctionne la contraception ?",
   "7": "Je veux suivre mon cycle. Mes regles ont commence aujourd'hui.",
   "8": "Je veux faire un quiz sur la sante menstruelle !",
-  "9": "Je veux poser une question.",
+  "9": "Je veux poser une question libre.",
 };
 
 function isUrgent(text) {
@@ -140,6 +130,49 @@ async function sendMessage(to, message) {
   );
 }
 
+// ============================================================
+// CORS — permet les appels depuis la web app Netlify
+// ============================================================
+app.use(function(req, res, next) {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  next();
+});
+
+// ============================================================
+// ROUTE /chat — pour la web app Cycle+
+// ============================================================
+app.post('/chat', async function(req, res) {
+  try {
+    var msg = req.body.message || '';
+    var name = req.body.name || '';
+    var age = req.body.age || null;
+    if (!msg) {
+      res.status(400).json({ error: 'Message requis' });
+      return;
+    }
+    var ctx = name ? '[Utilisatrice: ' + name + (age ? ', ' + age + ' ans' : '') + ']\n' : '';
+    var response = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: ctx + msg }]
+    });
+    res.json({ reply: response.content[0].text });
+  } catch(err) {
+    console.error('Erreur /chat:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ============================================================
+// WEBHOOK WhatsApp — verification
+// ============================================================
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -151,6 +184,9 @@ app.get('/webhook', (req, res) => {
   }
 });
 
+// ============================================================
+// WEBHOOK WhatsApp — messages entrants
+// ============================================================
 app.post('/webhook', async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -236,7 +272,6 @@ app.post('/webhook', async (req, res) => {
     conversations[from].push({ role: 'assistant', content: reply });
 
     const menuReminder = "\n\n➡️ _Tape *menu* pour revenir au menu_ 🌸";
-
     const finalReply = isNight()
       ? reply + "\n\n🌙 _Je suis la meme la nuit, n'hesite pas_ 💛" + menuReminder
       : reply + menuReminder;
@@ -250,4 +285,4 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-app.listen(process.env.PORT || 3000, () => console.log('Cycle+ V3 actif 🌸'));
+app.listen(process.env.PORT || 3000, () => console.log('Cycle+ Meta actif 🌸'));
