@@ -156,16 +156,20 @@ app.post('/chat', async function(req, res) {
     var msg = req.body.message || '';
     var name = req.body.name || '';
     var age = req.body.age || null;
+    var isFirst = req.body.firstMessage || false;
     if (!msg) {
       res.status(400).json({ error: 'Message requis' });
       return;
     }
     var ctx = name ? '[Utilisatrice: ' + name + (age ? ', ' + age + ' ans' : '') + ']\n' : '';
+    var firstCtx = isFirst
+      ? '[PREMIER MESSAGE - commence par Salut ' + (name || '') + ' 🌸]\n'
+      : '[PAS LE PREMIER MESSAGE - reponds directement SANS salutation ni introduction]\n';
     var response = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 600,
       system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: ctx + msg }]
+      messages: [{ role: 'user', content: firstCtx + ctx + msg }]
     });
     res.json({ reply: response.content[0].text });
   } catch(err) {
